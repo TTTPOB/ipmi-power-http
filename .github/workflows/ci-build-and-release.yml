@@ -39,8 +39,7 @@ jobs:
             target: aarch64-unknown-linux-musl
             artifact_id: linux-aarch64-musl
             archive_ext: tar.gz
-            needs_musl: true
-            needs_zig: true
+            use_cross: true
 
     steps:
       - name: Checkout
@@ -56,12 +55,6 @@ jobs:
         with:
           shared-key: ${{ matrix.target }}
 
-      - name: Install Zig (aarch64 musl only)
-        if: ${{ matrix.needs_zig }}
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: 0.12.0
-
       - name: Install musl tools (Linux musl only)
         if: ${{ matrix.needs_musl }}
         run: |
@@ -69,25 +62,21 @@ jobs:
           sudo apt-get install -y musl-tools
         shell: bash
 
-      - name: Configure Zig linker (aarch64 musl only)
-        if: ${{ matrix.needs_zig }}
+      - name: Install cross (aarch64 musl only)
+        if: ${{ matrix.use_cross }}
+        uses: taiki-e/cache-cargo-install-action@v2
+        with:
+          tool: cross
+
+      - name: Build (cross)
+        if: ${{ matrix.use_cross }}
         run: |
           set -euxo pipefail
-          cat > "$GITHUB_WORKSPACE/zigcc" <<'EOS'
-          #!/usr/bin/env bash
-          exec zig cc -target aarch64-linux-musl "$@"
-          EOS
-          cat > "$GITHUB_WORKSPACE/zigar" <<'EOS'
-          #!/usr/bin/env bash
-          exec zig ar "$@"
-          EOS
-          chmod +x "$GITHUB_WORKSPACE/zigcc" "$GITHUB_WORKSPACE/zigar"
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=$GITHUB_WORKSPACE/zigcc" >> "$GITHUB_ENV"
-          echo "CC_aarch64_unknown_linux_musl=$GITHUB_WORKSPACE/zigcc" >> "$GITHUB_ENV"
-          echo "AR_aarch64_unknown_linux_musl=$GITHUB_WORKSPACE/zigar" >> "$GITHUB_ENV"
+          cross build --release --locked --target "${{ matrix.target }}" $CARGO_BUILD_ARGS
         shell: bash
 
       - name: Build (cargo)
+        if: ${{ !matrix.use_cross }}
         run: |
           set -euxo pipefail
           cargo build --release --locked --target "${{ matrix.target }}" $CARGO_BUILD_ARGS
