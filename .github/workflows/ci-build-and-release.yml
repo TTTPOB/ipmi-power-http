@@ -33,13 +33,13 @@ jobs:
             target: x86_64-unknown-linux-musl
             artifact_id: linux-x86_64-musl
             archive_ext: tar.gz
-            use_cross: true
+            needs_musl: true
 
           - os: ubuntu-22.04
             target: aarch64-unknown-linux-musl
             artifact_id: linux-aarch64-musl
             archive_ext: tar.gz
-            use_cross: true
+            needs_musl: true
 
     steps:
       - name: Checkout
@@ -55,19 +55,14 @@ jobs:
         with:
           shared-key: ${{ matrix.target }}
 
-      - name: Install cross (Linux musl)
-        if: ${{ matrix.use_cross }}
-        uses: taiki-e/cache-cargo-install-action@v2
-
-      - name: Build (cross)
-        if: ${{ matrix.use_cross }}
+      - name: Install musl tools (Linux musl only)
+        if: ${{ matrix.needs_musl }}
         run: |
-          set -euxo pipefail
-          cross build --release --locked --target "${{ matrix.target }}" $CARGO_BUILD_ARGS
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
         shell: bash
 
       - name: Build (cargo)
-        if: ${{ !matrix.use_cross }}
         run: |
           set -euxo pipefail
           cargo build --release --locked --target "${{ matrix.target }}" $CARGO_BUILD_ARGS
@@ -96,31 +91,11 @@ jobs:
           echo "asset_path=$ASSET" >> "$GITHUB_OUTPUT"
         shell: bash
 
-      - name: Package (zip)
-        id: package_win
-        if: ${{ matrix.archive_ext == 'zip' }}
-        run: |
-          $ErrorActionPreference = "Stop"
-          New-Item -ItemType Directory -Force dist | Out-Null
-
-          $binPath = "target\${{ matrix.target }}\release\${{ env.BIN_NAME }}${{ matrix.exe_ext }}"
-          if (!(Test-Path $binPath)) { throw "Binary not found: $binPath" }
-
-          Copy-Item $binPath -Destination "dist\${{ env.BIN_NAME }}${{ matrix.exe_ext }}" -Force
-
-          $asset = "dist\${{ env.BIN_NAME }}-$env:GITHUB_REF_NAME-${{ matrix.artifact_id }}.zip"
-          Compress-Archive -Path "dist\${{ env.BIN_NAME }}${{ matrix.exe_ext }}" -DestinationPath $asset -Force
-
-          Remove-Item "dist\${{ env.BIN_NAME }}${{ matrix.exe_ext }}" -Force
-
-          "asset_path=$asset" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-        shell: pwsh
-
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.BIN_NAME }}-${{ github.ref_name }}-${{ matrix.artifact_id }}
-          path: ${{ steps.package_nix.outputs.asset_path || steps.package_win.outputs.asset_path }}
+          path: ${{ steps.package_nix.outputs.asset_path }}
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
