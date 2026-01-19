@@ -7,7 +7,7 @@ use axum::{
 };
 use axum_auth::AuthBearer;
 use clap::Parser;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 
 #[derive(Parser, Debug)]
@@ -77,6 +77,11 @@ fn power_action(action: PowerAction, config: &Config) -> Option<PowerStatus> {
         PowerAction::Off => "off".to_string(),
         PowerAction::Status => "status".to_string(),
     };
+    let safe_command = format!(
+        "ipmitool -I lanplus -H {} -U {} -P {} power {}",
+        config.ipmi_address, config.username, "******", action_str
+    );
+    debug!("Executing command: {}", safe_command);
     let command = format!(
         "ipmitool -I lanplus -H {} -U {} -P {} power {}",
         config.ipmi_address, config.username, config.password, action_str
@@ -94,8 +99,13 @@ fn power_action(action: PowerAction, config: &Config) -> Option<PowerStatus> {
         return None;
     }
     let command_out = output.stdout;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stderr.trim().is_empty() {
+        debug!("ipmitool stderr: {}", stderr.trim());
+    }
     let output = String::from_utf8_lossy(&command_out);
     let output = output.trim();
+    debug!("ipmitool stdout: {}", output);
     match output {
         "Chassis Power is on" => Some(PowerStatus::On),
         "Chassis Power is off" => Some(PowerStatus::Off),
@@ -124,8 +134,8 @@ async fn power_control(
     AuthBearer(token): AuthBearer,
     Json(payload): Json<PowerControlMsg>,
 ) -> impl IntoResponse {
-    info!("Got request to power on");
-    info!("Token: {}", token);
+    info!("Got request to control power");
+    debug!("Power control action: {}", payload.action);
     if !config.validate_token(&token) {
         return (StatusCode::UNAUTHORIZED, "token not in config");
     };
